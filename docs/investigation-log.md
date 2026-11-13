@@ -950,12 +950,12 @@ cobalt/build/configs/cobalt.gni:29:           enable_privacy_sandbox_apis = !is_
 | 制限なし（物理メモリ 125GB、24 コア） | 891MB | 956MB | 再生できた |
 | 物理メモリを 2GB に偽装 | 893MB | 952MB | 再生できた（**変化なし**） |
 | 2GB に偽装 + cgroup 2GB | 891MB | 961MB | 再生できた（変化なし） |
-| 1GB に偽装 + cgroup 1GB | 895MB | 956MB | 再生できた。`memory.events` で limit 到達も OOM も 0、cgroup のピークは 894MB（**変化なし**） |
+| 1GB に偽装 + cgroup 1GB | 895MB | 956MB | 再生できた。`memory.events` で limit 到達も OOM も 0、cgroup のピークは 852MB（**変化なし**） |
 | 600MB に偽装 + cgroup 600MB | — | — | **再生開始の約 2 秒後に OOM kill**（systemd: `Failed with result 'oom-kill'`、memory peak 600.0M） |
 | 300MB に偽装 + cgroup 300MB | — | — | **再生開始の約 2 秒後に OOM kill**（memory peak 300.0M） |
 | **4 コアに制限**（`taskset -c 0-3`） | **724MB** | 767MB | 再生できた（**−167MB**） |
 | 4 コア + 600MB に偽装 + cgroup 600MB | — | 716MB | 16 秒で OOM kill |
-| ホーム画面のみ（再生なし）、300MB に偽装 + cgroup 300MB | 243MB | 324MB | 120 秒間問題なく動いた（limit 到達も OOM も 0、cgroup のピークは 238MB）。制限なしの 244MB と同じ |
+| ホーム画面のみ（再生なし）、300MB に偽装 + cgroup 300MB | 243MB | 324MB | 120 秒間問題なく動いた（limit 到達も OOM も 0、cgroup のピークは 227MB）。制限なしの 244MB と同じ |
 
 - 注意: PSS には、他の cgroup に計上されている共有ライブラリの分も含まれるので、cgroup の上限より大きな値になることがある（4 コア + 600MB の 716MB など）。
 
@@ -1050,7 +1050,7 @@ cobalt/build/configs/cobalt.gni:29:           enable_privacy_sandbox_apis = !is_
 | E3 | CPU 数を 4 と申告 + `taskset` で 4 コア | 1920x1080 | **364MB** | 381MB | 評価器は無効 |
 | E4 | 物理メモリを 1GB、MemAvailable を 256MB に偽装 | 3840x2160 | 878MB | 952MB | 評価器は無効 |
 | E5 | E4 + `--enable-features=EnableCobaltMemoryPressureEvaluator` | 3840x2160 | 878MB | 961MB | **予算 160MB、CRITICAL（2）を 18 回** |
-| E6 | 1GB・4 コアの端末を模擬（E3 + E5 + cgroup `MemoryMax=600M`、swap 0） | 1920x1080 | 364MB | 382MB | CRITICAL。**OOM にならずに再生できた**（cgroup のピーク 281MB） |
+| E6 | 1GB・4 コアの端末を模擬（E3 + E5 + cgroup `MemoryMax=600M`、swap 0） | 1920x1080 | 364MB | 382MB | CRITICAL。**OOM にならずに再生できた**（cgroup のピーク 268MB） |
 
 - どの条件でも、30 秒ごとのスクリーンショットが変化していて、再生が進んでいることを確認した。
 - E5 のログ: `Resolved total physical RAM: 1024 MB` → `Derived process memory budget = 160 MB`。
@@ -1437,3 +1437,6 @@ VmRSS: 118404 kB  RssAnon: 74452 kB
   ハードウェア側では、同じ 12 枚のサーフェスが GPU 側（ユニファイドメモリなら同じ DRAM）に移っている。
 - **参照フレームのメモリは、ハードウェアデコードでも減らないのが正常。** 今回の正味の削減（−72.8MB）は、余白、スレッド、常駐ページの差によるもの。
 - 実機で大きく減るとすれば、それは **CPU 側にコピーしない出力経路（punch-out など）で、CPU 側のフレームキャッシュ（最大約 142MiB）が無くなること**による、というのがソースに基づく見立て（未計測）。
+
+
+> 訂正（記事作成時）: cgroup の `memory.peak`（バイト）を 10 進の MB で書いていた箇所を、他の値と同じ 2^20 換算に統一した（281→268、894→852、238→227）。
