@@ -1440,3 +1440,50 @@ VmRSS: 118404 kB  RssAnon: 74452 kB
 
 
 > 訂正（記事作成時）: cgroup の `memory.peak`（バイト）を 10 進の MB で書いていた箇所を、他の値と同じ 2^20 換算に統一した（281→268、894→852、238→227）。
+
+---
+
+## Step 15. ROM の未計測部分の計測（コンパイル設定と //chrome 層）
+
+### 15-1. 方法
+
+- gold の `args.gn` に 1 行足した出力ディレクトリを作り、`cobalt` をビルドして strip 後のサイズを比較した（キュー: `~/chrobalt/rom_queue.sh`、結果: `~/chrobalt/rom_sizes.tsv`）。
+  - `rom_O2`: `optimize_for_size = false`
+  - `rom_nocfi`: `is_cfi = false`
+  - `rom_nolto`: `use_thin_lto = false` + `is_cfi = false`（`build/config/compiler/compiler.gni:164` の `assert(!is_cfi || use_thin_lto, "CFI requires ThinLTO")` のため、CFI も外す必要がある）
+  - ICF: gold のディレクトリで一時的に `use_icf = false` にしてリンクし直し、測った後に元に戻して再リンクした（戻した後のサイズが元の 114,060,408 バイトと一致することを確認）。
+- `//chrome` 層: 同じソースツリーで `cobalt/build/gn.py -p chromium_linux-x64x11 -c gold --no-rbe`（`is_cobalt=false`、`is_official_build=true`、`optimize_for_size=false`、ThinLTO・CFI・ICF は有効、`chrome_pgo_phase=0`）を生成し、`chrome` と `content_shell` をビルドした。
+- 所要時間: `rom_O2` 1h26m、`rom_nocfi` 1h24m、`rom_nolto` 約 1h24m、ICF の切り替えと戻しが各 49m、上流 Chromium 2h28m（51,088 ステップ）。
+
+### 15-2. 上流 Chromium のビルドで起きたこと
+
+1. 1 回目は 20 秒で失敗した: `//chrome/browser/metrics:expired_histograms_array` の生成スクリプトが、
+   `The --inputs is not in sync with the most updated list of xmls ... add: tools/metrics/histograms/metadata/cobalt/histograms.xml, .../cobalt/enums.xml` で停止。
+   Cobalt のパッチ（`components/metrics/generate_expired_histograms_array.gni`、+4 行）は `if (is_cobalt)` のときだけ Cobalt の XML を入力に加えるが、スクリプトはディスク上の全 XML を対象に整合性を確認するため、`is_cobalt=false` では食い違う。
+2. 2 回目: gni で 2 つの XML を条件なしで入力に加えたところ、`Duplicate enum Android.MemoryPressureNotification`、`Duplicate enum BooleanHung`、`Duplicate histogram definition Android.MemoryPressureNotification{AndroidProcessType}` で失敗した（Cobalt の XML が上流の定義と重複している）。gni は元に戻した。
+3. 3 回目: ビルド中だけ `tools/metrics/histograms/metadata/cobalt` をツリーの外へ退避し、終了時に戻した（`trap`）。ビルドは成功し、XML も戻ったことを確認した（`git status` に差分なし）。
+   → **このソースツリーのままでは、上流の `chrome` はビルドできない**。CI（`.github/config/chromium_linux.json`）でビルドしているのは `content_shell`、`chromedriver` などで、`chrome` は含まれていない。
+- キューの不具合: 上流 Chromium 用の 2 本目のキュー（`rom_queue2.sh`）は、1 本目から関数を切り出して読み込む作りにしたため、`chrome` のサイズが記録されず `content_shell` が 2 行記録された。2 つのバイナリは手で strip して測り直した（下の表の値）。
+
+### 15-3. 結果（strip 後、1 MB = 2^20 バイト）
+
+| 構成 | strip 後 | `.text` | `.rodata` | `.rela.dyn` | `.data.rel.ro` |
+|---|---|---|---|---|---|
+| gold（基準） | 108.8 MB（114,060,408） | 82.3 | 12.8 | 8.9 | 3.9 |
+| `-Os` を外す | 123.0 MB（129,014,904） | 96.4 | 13.0 | 8.9 | 3.9 |
+| ICF を外す | 119.3 MB（125,119,608） | 91.9 | 13.6 | 9.0 | 4.0 |
+| CFI を外す | 103.4 MB（108,448,888） | 77.9 | 12.6 | 8.5 | 3.6 |
+| ThinLTO と CFI を外す | 103.7 MB（108,686,456） | 78.3 | 12.6 | 8.5 | 3.6 |
+| 上流 `chrome`（`-O2`） | 283.4 MB（297,151,608） | 228.0 | 19.5 | 22.2 | 10.1 |
+| 上流 `content_shell`（`-O2`） | 168.8 MB（176,954,568） | 139.3 | 11.5 | 11.5 | 5.5 |
+
+- `-Os`: −14.3 MB。ICF: −10.5 MB。CFI: +5.4 MB（セキュリティ機能のための増加）。ThinLTO 単独（CFI を外した構成との差）: −0.2 MB。
+- 分解（同じソースツリー）: `chrome` 283.4 → `//chrome` 層 −114.6 → `content_shell` 168.8 → Cobalt 独自の機能削減 −45.8 → `cobalt`（`-O2`）123.0 → `-Os` −14.3 → gold 108.8。
+- `content_shell` は ICU データと V8 の起動用データを別ファイルにしており、`cobalt` は本体に埋め込んでいるので、Cobalt 独自の機能削減は 45.8 MB より大きい。
+- 同じソースからビルドした `chrome`（283.4 MB）は Chrome for Testing（254.5 MB）より大きい。今回のビルドは `chrome_pgo_phase=0`（PGO なし）、`is_chrome_branded=false`。Chrome for Testing のビルド条件は確認していない。
+
+### Step 15 まとめ
+
+- Chrome から Cobalt までの差（同じソースツリーで 283.4 → 108.8 MB）は、**`//chrome` 層 114.6 MB、Cobalt 独自の機能削減 45.8 MB 以上、`-Os` 14.3 MB** に分解できた。
+- 両方の構成に入っている ICF は 10.5 MB 減らしており、ThinLTO 単独の効果は 0.2 MB だった。
+- Cobalt 独自の機能削減の内訳（Web API の除外、ビルド設定による機能の除外、Starboard の分離など）は個別には測っていない。

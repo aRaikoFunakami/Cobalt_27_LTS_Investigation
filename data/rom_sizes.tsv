@@ -1,0 +1,9 @@
+label	stripped_bytes	sections
+gold_baseline	114060408	.text=86293961 .rodata=13431666 .rela.dyn=9350640 .data.rel.ro=4136008 .eh_frame=141296
+rom_O2	129014904	.text=101114650 .rodata=13618814 .rela.dyn=9328872 .data.rel.ro=4125808 .eh_frame=127056
+rom_nocfi	108448888	.text=81701684 .rodata=13201922 .rela.dyn=8959464 .data.rel.ro=3821880 .eh_frame=79048
+rom_nolto	108686456	.text=82056165 .rodata=13218178 .rela.dyn=8957904 .data.rel.ro=3730688 .eh_frame=33976
+rom_noicf	125119608	.text=96357046 .rodata=14304898 .rela.dyn=9409608 .data.rel.ro=4165232 .eh_frame=167032
+gold_restored	114060408	.text=86293961 .rodata=13431666 .rela.dyn=9350640 .data.rel.ro=4136008 .eh_frame=141296
+chromium_chrome	297151608	(measured manually: .text=228.0MiB .rodata=19.5MiB .rela.dyn=22.2MiB .data.rel.ro=10.1MiB)
+chromium_content_shell	176954568	(measured manually: .text=139.3MiB .rodata=11.5MiB .rela.dyn=11.5MiB .data.rel.ro=5.5MiB)

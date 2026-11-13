@@ -90,3 +90,25 @@ ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.32), ncol=3, frameon=False
 finish(ax, "VP9 4K 再生時の内訳（3 回平均）", "MB")
 fig.tight_layout(); fig.savefig(f"{out}/hw_vs_sw_breakdown.png"); plt.close(fig)
 print("ok")
+
+# 4. ROM waterfall: same-tree builds (data/rom_sizes.tsv; investigation log Step 15)
+fig, ax = plt.subplots(figsize=(9, 3.6), dpi=150)
+steps = [("chrome\n（上流構成、-O2）", 283.4, None), ("//chrome 層", -114.6, None),
+         ("content_shell\n（上流構成、-O2）", 168.8, None), ("Cobalt 独自の\n機能削減", -45.8, None),
+         ("cobalt\n（-O2）", 123.0, None), ("-Os", -14.3, None), ("cobalt\n（gold）", 108.8, None)]
+x = range(len(steps)); level = 0
+for i, (name, v, _) in enumerate(steps):
+    if v > 0:
+        bar = ax.bar(i, v, color=BLUE, width=0.6)
+        ax.text(i, v + 5, f"{v:.1f}", ha="center", va="bottom", fontsize=10, color="#0b0b0b")
+        level = v
+    else:
+        ax.bar(i, -v, bottom=level + v, color=ORANGE, width=0.6)
+        ax.text(i, level + 5, f"{v:.1f}", ha="center", va="bottom", fontsize=10, color="#0b0b0b")
+        level = level + v
+ax.set_xticks(list(x)); ax.set_xticklabels([s[0] for s in steps], fontsize=9)
+ax.set_ylim(0, 320); ax.set_ylabel("MB", color="#52514e")
+ax.set_title("strip 後のサイズの分解（同じソースツリーでビルド）", loc="left", fontsize=13, color="#0b0b0b", pad=12)
+ax.spines[["top", "right"]].set_visible(False); ax.grid(axis="y", color="#e4e3df", linewidth=0.8); ax.set_axisbelow(True)
+fig.tight_layout(); fig.savefig(f"{out}/rom_waterfall.png"); plt.close(fig)
+print("waterfall ok")
