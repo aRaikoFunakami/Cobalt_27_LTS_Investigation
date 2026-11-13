@@ -1,0 +1,346 @@
+diff --git a/starboard/linux/shared/media_is_video_supported.cc b/starboard/linux/shared/media_is_video_supported.cc
+index 6221a2a093..560984741f 100644
+--- a/starboard/linux/shared/media_is_video_supported.cc
++++ b/starboard/linux/shared/media_is_video_supported.cc
+@@ -16,6 +16,8 @@
+ #include "starboard/shared/starboard/media/media_support_internal.h"
+ // clang-format on
+ 
++#include <stdlib.h>
++
+ #include "starboard/common/log.h"
+ #include "starboard/configuration.h"
+ #include "starboard/configuration_constants.h"
+@@ -40,6 +42,15 @@ bool MediaIsVideoSupported(SbMediaVideoCodec video_codec,
+                            int64_t bitrate,
+                            int fps,
+                            bool decode_to_texture_required) {
++  // ponytail: with COBALT_EXPERIMENTAL_VAAPI=1 (VA-API) or =sw (libvpx
++  // baseline for comparison) only 8-bit non-AV1 streams are offered, because
++  // the VA-API path handles NV12 only and this machine's AV1 VA-API decode
++  // fails. The app then picks VP9.
++  const char* vaapi_env = getenv("COBALT_EXPERIMENTAL_VAAPI");
++  if (vaapi_env && vaapi_env[0] != '\0' && vaapi_env[0] != '0' &&
++      (video_codec == kSbMediaVideoCodecAv1 || bit_depth != 8)) {
++    return false;
++  }
+   if (!IsSDRVideo(bit_depth, primary_id, transfer_id, matrix_id)) {
+     if (bit_depth != 10 && bit_depth != 12) {
+       return false;
+diff --git a/starboard/linux/shared/player_components_factory.cc b/starboard/linux/shared/player_components_factory.cc
+index e2876d3317..756c0a6b18 100644
+--- a/starboard/linux/shared/player_components_factory.cc
++++ b/starboard/linux/shared/player_components_factory.cc
+@@ -12,6 +12,8 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include <stdlib.h>
++
+ #include <memory>
+ 
+ #include "starboard/common/log.h"
+@@ -93,7 +95,12 @@ class PlayerComponentsFactory : public PlayerComponents::Factory {
+ 
+       const SbMediaVideoCodec kAv1VideoCodec = kSbMediaVideoCodecAv1;
+ 
+-      if (creation_parameters.video_codec() == kSbMediaVideoCodecVp9) {
++      // ponytail: COBALT_EXPERIMENTAL_VAAPI=1 sends VP9 to the FFmpeg decoder,
++      // which then decodes through VA-API (see ffmpeg_video_decoder_impl.cc).
++      const char* vaapi_env = getenv("COBALT_EXPERIMENTAL_VAAPI");
++      const bool use_vaapi = vaapi_env && vaapi_env[0] == '1';
++      if (creation_parameters.video_codec() == kSbMediaVideoCodecVp9 &&
++          !use_vaapi) {
+         components.video.decoder = std::make_unique<VpxVideoDecoder>(
+             job_queue, creation_parameters.video_codec(),
+             creation_parameters.output_mode(),
+diff --git a/starboard/shared/ffmpeg/ffmpeg_video_decoder_impl.cc b/starboard/shared/ffmpeg/ffmpeg_video_decoder_impl.cc
+index 0ce75caf33..d084c77d64 100644
+--- a/starboard/shared/ffmpeg/ffmpeg_video_decoder_impl.cc
++++ b/starboard/shared/ffmpeg/ffmpeg_video_decoder_impl.cc
+@@ -17,11 +17,20 @@
+ 
+ #include "starboard/shared/ffmpeg/ffmpeg_video_decoder_impl.h"
+ 
++#include <dlfcn.h>
+ #include <stdlib.h>
+ 
+ #include <memory>
+ #include <string>
+ 
++// The experimental VA-API path needs the hwcontext API (FFmpeg >= 4.0).
++#define SB_FFMPEG_HAS_VAAPI (LIBAVCODEC_VERSION_MAJOR >= 58)
++#if SB_FFMPEG_HAS_VAAPI
++extern "C" {
++#include <libavutil/hwcontext.h>
++}
++#endif
++
+ #include "starboard/common/check_op.h"
+ #include "starboard/common/pointer_arithmetic.h"
+ #include "starboard/common/string.h"
+@@ -72,6 +81,64 @@ void ReleaseBuffer(AVCodecContext*, AVFrame* frame) {
+ }
+ #endif  // LIBAVUTIL_VERSION_INT >= LIBAVUTIL_VERSION_52_8
+ 
++#if SB_FFMPEG_HAS_VAAPI
++// ponytail: experiment-only VA-API support, enabled by
++// COBALT_EXPERIMENTAL_VAAPI=1. The hwcontext symbols are not part of
++// FFMPEGDispatch, so they are looked up directly in the already loaded
++// (RTLD_GLOBAL) libavutil/libavcodec. Decoded surfaces are copied back to CPU
++// memory (no zero-copy); a real port would hand dma-bufs to the renderer.
++struct HwApi {
++  int (*hwdevice_ctx_create)(AVBufferRef**,
++                             enum AVHWDeviceType,
++                             const char*,
++                             AVDictionary*,
++                             int) = nullptr;
++  int (*hwframe_transfer_data)(AVFrame*, const AVFrame*, int) = nullptr;
++  AVBufferRef* (*buffer_ref)(const AVBufferRef*) = nullptr;
++  void (*buffer_unref)(AVBufferRef**) = nullptr;
++  int (*default_get_buffer2)(AVCodecContext*, AVFrame*, int) = nullptr;
++  bool ok() const {
++    return hwdevice_ctx_create && hwframe_transfer_data && buffer_ref &&
++           buffer_unref && default_get_buffer2;
++  }
++};
++
++const HwApi& GetHwApi() {
++  static const HwApi api = [] {
++    HwApi a;
++    a.hwdevice_ctx_create = reinterpret_cast<decltype(a.hwdevice_ctx_create)>(
++        dlsym(RTLD_DEFAULT, "av_hwdevice_ctx_create"));
++    a.hwframe_transfer_data =
++        reinterpret_cast<decltype(a.hwframe_transfer_data)>(
++            dlsym(RTLD_DEFAULT, "av_hwframe_transfer_data"));
++    a.buffer_ref = reinterpret_cast<decltype(a.buffer_ref)>(
++        dlsym(RTLD_DEFAULT, "av_buffer_ref"));
++    a.buffer_unref = reinterpret_cast<decltype(a.buffer_unref)>(
++        dlsym(RTLD_DEFAULT, "av_buffer_unref"));
++    a.default_get_buffer2 = reinterpret_cast<decltype(a.default_get_buffer2)>(
++        dlsym(RTLD_DEFAULT, "avcodec_default_get_buffer2"));
++    return a;
++  }();
++  return api;
++}
++
++bool IsVaapiRequested() {
++  const char* value = getenv("COBALT_EXPERIMENTAL_VAAPI");
++  return value && value[0] == '1';
++}
++
++enum AVPixelFormat SelectVaapiFormat(AVCodecContext*,
++                                     const enum AVPixelFormat* formats) {
++  for (; *formats != AV_PIX_FMT_NONE; ++formats) {
++    if (*formats == AV_PIX_FMT_VAAPI) {
++      return *formats;
++    }
++  }
++  SB_LOG(ERROR) << "VA-API pixel format not offered by FFmpeg.";
++  return AV_PIX_FMT_NONE;
++}
++#endif  // SB_FFMPEG_HAS_VAAPI
++
+ AVCodecID GetFfmpegCodecIdByMediaCodec(SbMediaVideoCodec video_codec) {
+   // Note: although SbMediaVideoCodec values exist for them, MPEG2VIDEO, THEORA,
+   // and VC1 are not included here since we do not officially support them.
+@@ -81,6 +148,11 @@ AVCodecID GetFfmpegCodecIdByMediaCodec(SbMediaVideoCodec video_codec) {
+       return AV_CODEC_ID_H264;
+     case kSbMediaVideoCodecVp8:
+       return AV_CODEC_ID_VP8;
++#if SB_FFMPEG_HAS_VAAPI
++    case kSbMediaVideoCodecVp9:
++      // Only routed here by player_components_factory when VA-API is on.
++      return AV_CODEC_ID_VP9;
++#endif
+     default:
+       SB_DLOG(WARNING) << "FFmpeg decoder does not support SbMediaVideoCodec "
+                        << video_codec;
+@@ -317,6 +389,9 @@ bool FfmpegVideoDecoderImpl<FFMPEG>::DecodePacket(AVPacket* packet) {
+ 
+ bool FfmpegVideoDecoderImpl<FFMPEG>::ProcessDecodedFrame(
+     const AVFrame& av_frame) {
++  if (use_vaapi_) {
++    return ProcessHwFrame(av_frame);
++  }
+   if (av_frame.opaque == NULL) {
+     SB_DLOG(ERROR) << "Video frame was produced yet has invalid frame data.";
+     error_cb_(kSbPlayerErrorDecode,
+@@ -358,6 +433,92 @@ bool FfmpegVideoDecoderImpl<FFMPEG>::ProcessDecodedFrame(
+   return true;
+ }
+ 
++bool FfmpegVideoDecoderImpl<FFMPEG>::ProcessHwFrame(const AVFrame& av_frame) {
++#if SB_FFMPEG_HAS_VAAPI
++  const AVFrame* src = &av_frame;
++  if (!hw_pool_logged_ && av_frame.hw_frames_ctx) {
++    // One-time dump of the GPU surface pool, to explain GPU-side memory.
++    const AVHWFramesContext* pool =
++        reinterpret_cast<const AVHWFramesContext*>(av_frame.hw_frames_ctx->data);
++    SB_LOG(INFO) << "VA-API surface pool: initial_pool_size="
++                 << pool->initial_pool_size << " size=" << pool->width << "x"
++                 << pool->height << " sw_format=" << pool->sw_format
++                 << " (NV12=" << AV_PIX_FMT_NV12 << ")";
++    hw_pool_logged_ = true;
++  }
++  if (av_frame.format == AV_PIX_FMT_VAAPI) {
++    if (!sw_frame_) {
++      sw_frame_ = ffmpeg_->av_frame_alloc();
++    }
++    ffmpeg_->av_frame_unref(sw_frame_);
++    const int rv = GetHwApi().hwframe_transfer_data(sw_frame_, &av_frame, 0);
++    if (rv < 0) {
++      error_cb_(kSbPlayerErrorDecode,
++                FormatString("av_hwframe_transfer_data() failed: %d", rv));
++      error_occurred_ = true;
++      return false;
++    }
++    src = sw_frame_;
++  }
++
++  const int width = av_frame.width;
++  const int height = av_frame.height;
++  const int uv_width = (width + 1) / 2;
++  const int uv_height = (height + 1) / 2;
++  const uint8_t* u = nullptr;
++  const uint8_t* v = nullptr;
++  int uv_pitch = 0;
++  if (src->format == AV_PIX_FMT_NV12) {
++    // Deinterleave UV into the planar layout CpuVideoFrame expects.
++    chroma_planes_.resize(static_cast<size_t>(uv_width) * uv_height * 2);
++    uint8_t* u_plane = chroma_planes_.data();
++    uint8_t* v_plane = u_plane + static_cast<size_t>(uv_width) * uv_height;
++    for (int row = 0; row < uv_height; ++row) {
++      const uint8_t* uv = src->data[1] + row * src->linesize[1];
++      for (int col = 0; col < uv_width; ++col) {
++        u_plane[row * uv_width + col] = uv[col * 2];
++        v_plane[row * uv_width + col] = uv[col * 2 + 1];
++      }
++    }
++    u = u_plane;
++    v = v_plane;
++    uv_pitch = uv_width;
++  } else if (src->format == AV_PIX_FMT_YUV420P) {
++    // FFmpeg fell back to software decoding.
++    u = src->data[1];
++    v = src->data[2];
++    uv_pitch = src->linesize[1];
++  } else {
++    error_cb_(kSbPlayerErrorDecode,
++              FormatString("Unsupported VA-API output format %d", src->format));
++    error_occurred_ = true;
++    return false;
++  }
++
++  int64_t frame_pts = av_frame.pts;
++#if LIBAVCODEC_VERSION_MAJOR < 61
++  if (frame_pts == AV_NOPTS_VALUE) {
++    frame_pts = av_frame.reordered_opaque;
++  }
++#endif
++  scoped_refptr<CpuVideoFrame> frame = CpuVideoFrame::CreateYV12Frame(
++      /*bit_depth=*/8, width, height, src->linesize[0], uv_pitch, frame_pts,
++      src->data[0], u, v);
++  if (output_mode_ == kSbPlayerOutputModeDecodeToTexture) {
++    std::lock_guard lock(decode_target_and_frames_mutex_);
++    frames_.push(frame);
++  }
++  decoder_status_cb_(kBufferFull, frame);
++  return true;
++#else   // SB_FFMPEG_HAS_VAAPI
++  // Old FFmpeg/libav: the VA-API members exist but are never set.
++  (void)hw_device_ctx_;
++  (void)sw_frame_;
++  (void)hw_pool_logged_;
++  return false;
++#endif  // SB_FFMPEG_HAS_VAAPI
++}
++
+ void FfmpegVideoDecoderImpl<FFMPEG>::UpdateDecodeTarget_Locked(
+     const scoped_refptr<CpuVideoFrame>& frame) {
+   SbDecodeTarget decode_target = DecodeTargetCreate(
+@@ -402,6 +563,31 @@ bool FfmpegVideoDecoderImpl<FFMPEG>::InitializeCodec() {
+   codec_context_->extradata = NULL;
+   codec_context_->extradata_size = 0;
+ 
++#if SB_FFMPEG_HAS_VAAPI
++  if (IsVaapiRequested()) {
++    const HwApi& hw = GetHwApi();
++    AVBufferRef* device = nullptr;
++    const char* node = getenv("COBALT_VAAPI_DEVICE");
++    if (!hw.ok()) {
++      SB_LOG(WARNING) << "VA-API requested but hwcontext symbols are missing.";
++    } else if (hw.hwdevice_ctx_create(&device, AV_HWDEVICE_TYPE_VAAPI,
++                                      node ? node : "/dev/dri/renderD128",
++                                      nullptr, 0) < 0) {
++      SB_LOG(WARNING) << "VA-API device creation failed; using software.";
++    } else {
++      hw_device_ctx_ = device;
++      codec_context_->hw_device_ctx = hw.buffer_ref(device);
++      codec_context_->get_format = SelectVaapiFormat;
++      // Hardware frames come from FFmpeg's own pool, not AllocateBuffer().
++      codec_context_->get_buffer2 = hw.default_get_buffer2;
++      codec_context_->thread_count = 1;
++      use_vaapi_ = true;
++      SB_LOG(INFO) << "FfmpegVideoDecoder: VA-API hardware decoding enabled "
++                   << "for codec " << video_codec_;
++    }
++  }
++#endif  // SB_FFMPEG_HAS_VAAPI
++
+   AVCodec* codec = ffmpeg_->avcodec_find_decoder(codec_context_->codec_id);
+ 
+   if (codec == NULL) {
+@@ -436,6 +622,16 @@ void FfmpegVideoDecoderImpl<FFMPEG>::TeardownCodec() {
+     ffmpeg_->FreeContext(&codec_context_);
+   }
+   ffmpeg_->FreeFrame(&av_frame_);
++#if SB_FFMPEG_HAS_VAAPI
++  if (sw_frame_) {
++    ffmpeg_->FreeFrame(&sw_frame_);
++  }
++  if (hw_device_ctx_) {
++    AVBufferRef* device = static_cast<AVBufferRef*>(hw_device_ctx_);
++    GetHwApi().buffer_unref(&device);
++    hw_device_ctx_ = nullptr;
++  }
++#endif  // SB_FFMPEG_HAS_VAAPI
+ 
+   if (output_mode_ == kSbPlayerOutputModeDecodeToTexture) {
+     std::lock_guard lock(decode_target_and_frames_mutex_);
+diff --git a/starboard/shared/ffmpeg/ffmpeg_video_decoder_impl.h b/starboard/shared/ffmpeg/ffmpeg_video_decoder_impl.h
+index 13cf604076..ca00159c9f 100644
+--- a/starboard/shared/ffmpeg/ffmpeg_video_decoder_impl.h
++++ b/starboard/shared/ffmpeg/ffmpeg_video_decoder_impl.h
+@@ -20,6 +20,7 @@
+ #include <mutex>
+ #include <optional>
+ #include <queue>
++#include <vector>
+ 
+ #include "starboard/common/check_op.h"
+ #include "starboard/common/log.h"
+@@ -129,6 +130,9 @@ class FfmpegVideoDecoderImpl<FFMPEG> : public FfmpegVideoDecoder {
+   //
+   // Returns false if the frame contains invalid data.
+   bool ProcessDecodedFrame(const AVFrame& av_frame);
++  // Experimental VA-API path (COBALT_EXPERIMENTAL_VAAPI=1): frames decoded on
++  // the GPU are copied back to CPU memory and handed on as YV12.
++  bool ProcessHwFrame(const AVFrame& av_frame);
+ 
+   // Guaranteed to be non-null.
+   FFMPEGDispatch* const ffmpeg_;
+@@ -147,6 +151,13 @@ class FfmpegVideoDecoderImpl<FFMPEG> : public FfmpegVideoDecoder {
+   // thread.
+   AVCodecContext* codec_context_ = nullptr;
+   AVFrame* av_frame_ = nullptr;
++  // VA-API state. void* keeps this header valid for old libav versions that
++  // lack AVBufferRef / hwcontext.
++  void* hw_device_ctx_ = nullptr;
++  AVFrame* sw_frame_ = nullptr;
++  bool use_vaapi_ = false;
++  bool hw_pool_logged_ = false;
++  std::vector<uint8_t> chroma_planes_;
+ 
+   bool stream_ended_ = false;
+   bool error_occurred_ = false;

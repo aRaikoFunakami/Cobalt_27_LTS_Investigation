@@ -1,0 +1,25 @@
+                         samples=240 steadyPSS= 895.0MB peakPSS= 955.5MB peakRSS=1009.0MB res=- pressure=- player=Y frames_changing=YYYYYYY last_t=242.9
+                         samples=  2 steadyPSS= 118.2MB peakPSS= 234.9MB peakRSS= 283.6MB res=- pressure=- player=Y frames_changing= last_t=1.0
+                         samples=  2 steadyPSS= 112.4MB peakPSS= 223.3MB peakRSS= 272.2MB res=- pressure=- player=Y frames_changing= last_t=1.0
+                         samples=241 steadyPSS= 723.7MB peakPSS= 766.8MB peakRSS= 820.0MB res=- pressure=- player=Y frames_changing=YYYYYYY last_t=242.9
+                         samples= 17 steadyPSS= 633.9MB peakPSS= 715.7MB peakRSS= 769.2MB res=- pressure=- player=Y frames_changing= last_t=16.2
+                         samples=328 steadyPSS= 873.5MB peakPSS= 947.9MB peakRSS=1001.2MB res=3840x2160 pressure=- player=Y frames_changing=YYYYY last_t=182.4
+                         samples=326 steadyPSS= 416.1MB peakPSS= 435.9MB peakRSS= 489.4MB res=1920x1080 pressure=- player=Y frames_changing=YYYYY last_t=182.3
+                         samples=335 steadyPSS= 713.8MB peakPSS= 779.4MB peakRSS= 832.8MB res=3840x2160 pressure=- player=Y frames_changing=YYYYY last_t=182.6
+                         samples=333 steadyPSS= 364.3MB peakPSS= 380.7MB peakRSS= 434.0MB res=1920x1080 pressure=- player=Y frames_changing=YYYYY last_t=180.4
+                         samples=327 steadyPSS= 877.7MB peakPSS= 951.9MB peakRSS=1005.2MB res=3840x2160 pressure=- player=Y frames_changing=YYYYY last_t=182.7
+                         samples=328 steadyPSS= 877.7MB peakPSS= 960.9MB peakRSS=1014.4MB res=3840x2160 pressure=222222222222 player=Y frames_changing=YYYYY last_t=183.3
+                         samples=333 steadyPSS= 364.2MB peakPSS= 381.5MB peakRSS= 435.0MB res=1920x1080 pressure=222222222222 player=Y frames_changing=YYYYY last_t=180.4
+                         samples=335 steadyPSS= 573.0MB peakPSS= 630.3MB peakRSS= 683.8MB res=3840x2160 pressure=- player=Y frames_changing=YYYYY last_t=182.6 gpuResident=   0.0MB gpuTotalPeak=   0.0MB videoEngine=  0.0s
+                         samples=335 steadyPSS= 571.4MB peakPSS= 631.3MB peakRSS= 684.7MB res=3840x2160 pressure=- player=Y frames_changing=YYYYY last_t=183.6 gpuResident=   0.0MB gpuTotalPeak=   0.0MB videoEngine=  0.0s
+                         samples=334 steadyPSS= 574.2MB peakPSS= 630.2MB peakRSS= 683.7MB res=3840x2160 pressure=- player=Y frames_changing=YYYYY last_t=182.6 gpuResident=   0.0MB gpuTotalPeak=   0.0MB videoEngine=  0.0s
+                         samples=338 steadyPSS= 411.0MB peakPSS= 474.3MB peakRSS= 527.8MB res=3840x2160 pressure=- player=Y frames_changing=YYYYY last_t=182.4 gpuResident=  89.0MB gpuTotalPeak= 176.0MB videoEngine= 21.4s
+                         samples=335 steadyPSS= 410.0MB peakPSS= 459.7MB peakRSS= 513.2MB res=3840x2160 pressure=- player=Y frames_changing=YYYYY last_t=180.3 gpuResident=  89.0MB gpuTotalPeak= 176.0MB videoEngine= 20.3s
+                         samples=338 steadyPSS= 412.3MB peakPSS= 462.2MB peakRSS= 515.6MB res=3840x2160 pressure=- player=Y frames_changing=YYYYY last_t=183.4 gpuResident=  89.0MB gpuTotalPeak= 176.0MB videoEngine= 21.6s
+                         samples=120 steadyPSS= 242.9MB peakPSS= 323.6MB peakRSS= 372.1MB res=- pressure=- player=Y frames_changing=nnn last_t=120.7
+                         samples= 62 steadyPSS= 869.2MB peakPSS= 912.6MB peakRSS= 966.1MB res=3840x2160 pressure=- player=Y frames_changing=Y last_t=62.0
+                         samples=240 steadyPSS= 891.2MB peakPSS= 956.0MB peakRSS=1009.5MB res=- pressure=- player=Y frames_changing=YYYYYYY last_t=243.1
+                         samples=240 steadyPSS= 893.4MB peakPSS= 951.8MB peakRSS=1005.3MB res=- pressure=- player=Y frames_changing=YYYYYYY last_t=243.0
+                         samples=240 steadyPSS= 891.2MB peakPSS= 961.0MB peakRSS=1014.7MB res=- pressure=- player=Y frames_changing=YYYYYYY last_t=242.8
+                         samples=179 steadyPSS= 244.0MB peakPSS= 301.2MB peakRSS= 350.1MB res=- pressure=- player=Y frames_changing=Ynnnn last_t=180.5
+                         samples=218 steadyPSS= 396.0MB peakPSS= 451.6MB peakRSS= 505.2MB res=3840x2160 pressure=- player=Y frames_changing=Y last_t=61.6 gpuResident=  89.0MB gpuTotalPeak= 176.0MB videoEngine=  7.4s

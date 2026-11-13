@@ -1,0 +1,7 @@
+     18  CobaltSystemMemoryPressureEvaluator: Resolved memory pressure level=2
+      2  Updated VideoDecoderConfig -- codec: av1, profile: av1 profile main, level: not available, alpha_mode: is_opaque, coded size: [3840,2160], visible rect: [0,0,3840,2160], natural size: [3840,2160], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, mime_type: video/mp4; codecs="av01.0.13M.08", color space: {primaries:BT709, transfer:BT709, matrix:BT709, range
+      1  SbPlayerCreate() called with audio mime "audio/mp4; codecs="ec-3"", video mime "video/mp4; codecs="av01.0.13M.08"", and max video capabilities "".
+      1  H5vccRuntime initial DeepLink: ""
+      1  CobaltSystemMemoryPressureEvaluator: Resolved total physical RAM: 1024 MB (1073741824 bytes).
+      1  CobaltSystemMemoryPressureEvaluator registered successfully.
+      1  CobaltSystemMemoryPressureEvaluator: Derived process memory budget = 160 MB.

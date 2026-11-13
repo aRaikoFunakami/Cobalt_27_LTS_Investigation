@@ -1,0 +1,15 @@
+   212.5 MB  52.3%  [anon:partition_alloc]
+    95.1 MB  23.4%  file: cobalt (code/rodata)
+    33.0 MB   8.1%  file: Mesa/GL/LLVM
+    21.9 MB   5.4%  file: other libs
+    21.5 MB   5.3%  anon (unnamed)
+     8.2 MB   2.0%  [anon:v8]
+     7.9 MB   1.9%  shared: SYSV00000000
+     4.8 MB   1.2%  file: libstarboard
+     0.8 MB   0.2%  file: pak/fonts/data
+     0.2 MB   0.1%  shared: memfd:pulseaudio
+     0.1 MB   0.0%  shared: .org.chromium.Chromium.2ULpeA
+     0.1 MB   0.0%  shared: .org.chromium.Chromium.r7AGUc
+     0.1 MB   0.0%  shared: .org.chromium.Chromium.JdL1Qe
+     0.1 MB   0.0%  shared: .org.chromium.Chromium.l9yrIK
+   406.4 MB total PSS

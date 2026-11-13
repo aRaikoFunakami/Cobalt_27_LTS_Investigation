@@ -1,0 +1,6 @@
+      4  Updated VideoDecoderConfig -- codec: vp9, profile: vp9 profile0, level: not available, alpha_mode: is_opaque, coded size: [3840,2160], visible rect: [0,0,3840,2160], natural size: [3840,2160], has extra data: false, encryption scheme: Unencrypted, rotation: 0°, flipped: 0, mime_type: video/webm; codecs="vp09.00.51.08.01.01.01.01.00", color space: {primaries:BT709, transfer:BT709, matrix:
+      2  VA-API surface pool: initial_pool_size=12 size=3840x2160 sw_format=23 (NV12=23)
+      2  SbPlayerCreate() called with audio mime "audio/mp4; codecs="ec-3"", video mime "video/webm; codecs="vp09.00.51.08.01.01.01.01.00"", and max video capabilities "".
+      2  Playing video using ffmpeg::VideoDecoder.
+      2  FfmpegVideoDecoder: VA-API hardware decoding enabled for codec 8
+      1  H5vccRuntime initial DeepLink: ""
