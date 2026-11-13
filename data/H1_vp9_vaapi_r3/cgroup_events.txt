@@ -1,6 +1,0 @@
-t=30s low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0  peak=59117182976
-t=60s low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0  peak=59117182976
-t=90s low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0  peak=59117182976
-t=120s low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0  peak=59117182976
-t=150s low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0  peak=59117182976
-t=180s low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0  peak=59117182976
