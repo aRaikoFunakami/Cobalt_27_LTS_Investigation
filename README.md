@@ -25,7 +25,7 @@ scripts/analysis/                DWARF によるサイズ内訳、上流との b
 data/<run>/                      各計測の mem.csv（1 秒ごと）、cgroup_events.txt、key_log_lines.txt、smaps 内訳
 data/SUMMARY.txt                 全計測の集計（mem_summary.py の出力）
 data/rom_sizes.tsv               ROM の内訳用ビルドの strip 後サイズ
-docs/investigation-log.md        調査ログ（Step 1〜14）
+docs/investigation-log.md        調査ログ（Step 1〜18）
 docs/images/                     記事用のグラフ・スクリーンショット
 ```
 

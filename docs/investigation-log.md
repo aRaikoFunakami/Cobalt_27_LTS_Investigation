@@ -1487,3 +1487,118 @@ VmRSS: 118404 kB  RssAnon: 74452 kB
 - Chrome から Cobalt までの差（同じソースツリーで 283.4 → 108.8 MB）は、**`//chrome` 層 114.6 MB、Cobalt 独自の機能削減 45.8 MB 以上、`-Os` 14.3 MB** に分解できた。
 - 両方の構成に入っている ICF は 10.5 MB 減らしており、ThinLTO 単独の効果は 0.2 MB だった。
 - Cobalt 独自の機能削減の内訳（Web API の除外、ビルド設定による機能の除外、Starboard の分離など）は個別には測っていない。
+
+---
+
+## Step 16. Cobalt shell と CEF（Chromium Embedded Framework）の比較
+
+### 16-1. 対象
+
+| | ソース / バイナリ |
+|---|---|
+| CEF | `https://github.com/chromiumembedded/cef` ブランチ `7204`（commit `6981a09edb2b`、「Update to Chromium version 138.0.7204.310」）を `~/chrobalt/cef` に `--depth 1` で clone。`CHROMIUM_BUILD_COMPATIBILITY.txt` は `refs/tags/138.0.7204.310` |
+| CEF のバイナリ | 公式ビルド（cef-builds.spotifycdn.com）の `cef_binary_138.0.62+g6981a09+chromium-138.0.7204.310_linux64_minimal.tar.bz2`（366.2 MB、clone したコミットと同じ `g6981a09`） |
+| Cobalt | 27.lts.13（Chromium 138.0.7204.311） |
+
+### 16-2. CEF は `//chrome` をまるごと含む
+
+- `cef/BUILD.gn` の `source_set("libcef_static")`（482 行目〜）の依存に `"//chrome:dependencies"`（916 行目）があり、`//chrome/app/chrome_main_delegate.cc` などの Chrome のソースも直接取り込んでいる（`"//chrome/...` の参照は 36 箇所）。
+- 上流 `chromium/m138` の `chrome/BUILD.gn` の `group("dependencies")` は `//chrome/browser`、`//chrome/child`、`//chrome/common`、`//chrome/gpu`、`//chrome/renderer`、`//chrome/utility`、`//components/sync` などを含む。
+- → CEF は Chrome のブラウザ層の上に組み込み用の API を足したもの。Cobalt は `//chrome` のターゲットを 1 つも含まない（Step 4）。
+
+### 16-3. サイズ（strip 後、1 MB = 2^20 バイト）
+
+| バイナリ | strip 後 | `.text` | `.rodata` | `.rela.dyn` | `.data.rel.ro` |
+|---|---|---|---|---|---|
+| CEF `libcef.so`（138.0.62、配布物は strip 前 1,381 MB） | **226.2 MB**（237,235,328） | 175.0 | 17.7 | 22.3 | 9.8 |
+| Chrome for Testing 138.0.7204.183 `chrome` | 254.5 MB | 197.0 | 20.1 | 22.1 | 10.1 |
+| 同じソースの上流 `chrome`（`-O2`、PGO なし） | 283.4 MB | 228.0 | 19.5 | 22.2 | 10.1 |
+| 同じソースの上流 `content_shell`（`-O2`） | 168.8 MB | 139.3 | 11.5 | 11.5 | 5.5 |
+| Cobalt `cobalt`（gold） | 108.8 MB（+ `libstarboard.so` 7.0 MB） | 82.3 | 12.8 | 8.9 | 3.9 |
+
+- CEF の公式ビルドの GN 引数（PGO や `-Os` の有無など）は確認していないので、Chrome for Testing との差（−28.3 MB）の理由は不明。
+- CEF は Chrome とほぼ同じ規模で、Cobalt の約 2.1 倍。
+
+### 16-4. Cobalt shell の正体: `content_shell` の改造版
+
+| ファイル（`cobalt/shell/browser/` と `content/shell/browser/`） | `content_shell` | Cobalt | 共通行（Cobalt に対する割合） |
+|---|---|---|---|
+| `shell.cc` | 825 行 | 1,468 行 | 554（38%） |
+| `shell_content_browser_client.cc` | 1,039 行 | 771 行 | 618（80%） |
+| `shell_browser_main_parts.cc` | 235 行 | 264 行 | 152（58%） |
+| `shell_platform_delegate_views.cc` | 463 行 | 483 行 | 238（49%） |
+| `shell_javascript_dialog_manager.cc` | 141 行 | 95 行 | 70（74%） |
+| `shell_devtools_frontend.cc` | 84 行 | 94 行 | 75（80%） |
+
+（`difflib.SequenceMatcher` で一致した行数。`shell.cc` の著作権表記は「Copyright 2025 The Cobalt Authors」）
+
+### 16-5. 機能の対比
+
+| 機能 | CEF（`include/cef_*.h` 85 ファイル + `include/views/` 21 ファイル） | Cobalt shell / Cobalt |
+|---|---|---|
+| 想定用途 | 任意のアプリにブラウザを組み込む汎用の API（`cef_browser.h`、`cef_client.h`、`cef_app.h`） | YouTube のテレビ向けアプリ専用（起動 URL は `https://www.youtube.com/tv`） |
+| プロセス構成 | マルチプロセス（`cef_process_message.h`、`cef_render_process_handler.h`） | 単一プロセス（`--single-process` を常に付ける） |
+| JavaScript との連携 | V8 を直接操作する API（`cef_v8.h`、36 KB） | Blink の Web IDL として独自 API を追加（`H5vcc*`、16 の IDL: accessibility、experiments、memory、metrics、native_stability、platform_service、runtime、settings、storage、system、updater など） |
+| ダウンロード | `cef_download_handler.h`、`cef_download_item.h` | なし（`ShellBrowserContext::GetDownloadManagerDelegate()` が `nullptr`） |
+| 印刷 | `cef_print_handler.h`、`cef_print_settings.h` | なし（`printing/` は 3 ファイル、`.text` 0.00 MB） |
+| ファイル選択ダイアログ | `cef_dialog_handler.h` | なし（`RunFileChooser` を実装していない。`content_shell` は実装） |
+| カメラ・マイクの許可 | `cef_permission_handler.h` | 音声以外は `PERMISSION_DENIED`（`shell.cc` の `RequestMediaAccessPermission`） |
+| 画面外への描画（OSR） | `cef_render_handler.h` | なし（Starboard の画面に直接描画） |
+| UI 部品 | `include/views/`（ボタン、テキスト欄、ウィンドウなど 21 ファイル）、`cef_menu_model.h`、`cef_context_menu_handler.h` | YouTube の Web アプリ自身が UI を描く。ネイティブの UI 部品はスプラッシュ画面程度（`splash_screen_*`） |
+| 通信への介入 | `cef_resource_request_handler.h`、`cef_request_handler.h`、`cef_response_filter.h`、`cef_cookie.h`、`cef_scheme.h` | `h5vcc-embedded://` スキームの読み込み（`h5vcc_scheme_url_loader_factory.cc`）、Client Hints ヘッダ、HTTPS / CSP の強制（`cobalt_secure_navigation_throttle.cc`） |
+| Chrome の設定・コマンド | `cef_preference.h`、`cef_command_handler.h`、`cef_task_manager.h` | なし |
+| メディアの送信先（Cast） | `cef_media_router.h` | なし（`components/media_router` のリンク済みコード 0） |
+| Chrome 由来の機能（パスワード管理、自動入力、Safe Browsing、同期、翻訳、履歴、ブックマーク、PDF ビューア、拡張機能） | `//chrome:dependencies` 経由で含む（例: `//chrome/browser/resources/pdf:resources` を直接参照） | 機能としては無い。`//content` が参照する共通部分だけがリンクされている（`.text`: password_manager 0.01 MB、download 0.15 MB、translate・history・bookmarks・pdf・extensions は 0） |
+| テレビ向けの機能 | なし | Starboard（動画再生、DRM、音声、入力、画面）、DIAL（`cobalt/browser/dial`）、画面上のキーボード（`on_screen_keyboard`）、ライフサイクル管理（`lifecycle`）、Evergreen の更新（`h5vcc_updater`、`cobalt/updater`）、ディープリンク（`h5vcc_runtime`）、メトリクス・クラッシュ注記（`metrics`、`crash_annotator`） |
+| 開発者ツール | `cef_devtools_message_observer.h` | 非リリースビルドのみ（gold では `enable_devtools_backend=false`） |
+
+### Step 16 まとめ
+
+- **CEF は `//chrome` をまるごと取り込む**（`libcef_static` → `//chrome:dependencies`）。そのため `libcef.so` は strip 後 226.2 MB で、Chrome と同じ規模。CEF を使っても `//chrome` 層（−114.6 MB）は減らせない。
+- **Cobalt shell は `content_shell` を元にした YouTube 専用の shell** で、汎用の組み込み API（ダウンロード、印刷、ファイル選択、画面外への描画、V8 の直接操作、ネイティブ UI 部品）を持たない代わりに、Starboard とテレビ向けの機能、`H5vcc` という Web API を持つ。
+- Cobalt が −114.6 MB を実現できているのは、「YouTube の Web アプリ 1 つだけを動かす」と用途を絞り、汎用ブラウザに必要な Chrome 層を丸ごと持たない構成にしているため。
+
+### Step 16 追補: CEF と Google サインイン、Cobalt のサインイン
+- Google Security Blog 2019-04「Better protection against Man in the Middle phishing attacks」: CEF など埋め込みブラウザ経由の Google サインインをブロック。開発者向けの解決策は「browser-based OAuth authentication」（CEF に //chrome を入れることではない）。
+- CEF の Alloy→Chrome ランタイム一本化: cef issue #3681（2024-04-11）の理由は「Chrome runtime は Chrome の UI と機能を全部サポート」「ランタイムを起動時に 1 つ選ぶ必要がある問題の解消」「最終的に Alloy bootstrap を削除」。サインインは理由に書かれていない（他の issue は未確認）。
+- Cobalt: ソース（cobalt/, starboard/）に accounts.google.com・OAuth・device code の実装なし。cobalt/shell/common/device_authentication.cc は起動 URL に端末証明書の鍵（SbSystemSignWithCertificationSecretKey, kSbSystemPropertyCertificationScope）で署名を付けるだけ＝端末の認証であってユーザーのサインインではない。
+- ユーザーのサインインは YouTube の Web アプリ側（一般知識・未検証: OAuth 2.0 for TV and Limited-Input Devices、スマホで yt.be/activate にコード入力）。ブラウザ内でパスワードを入力しないので埋め込みブラウザのブロック対象にならない。
+- 追補（ユーザー確認）: Cobalt で Sign in を選ぶと「Scan QR code or go to yt.be/activate / Enter the code XXX-XXX-XXXX」画面（Sign in with your phone）。端末外でサインインする方式であることを画面で確認。もう 1 つの「Sign in with your remote」の中身は未確認。
+
+## Step 17. content_shell と cobalt shell の差（ファイル構成・依存・DWARF でのコード量）
+- ファイル: content/shell 143 / cobalt/shell 98（.cc/.h/.mm/.gn/.java）、同名 56。
+  - cobalt/shell のみ: splash_screen*、h5vcc_scheme_url_loader_factory、migrate_storage_record、picture_in_picture、on_screen_keyboard(tvOS)、device_authentication、url_constants、Android の StartupGuard。
+  - content/shell のみ: browser/bluetooth(13)、shell_permission_manager、shell_origin_trial_policy、color_chooser、protocol(DevTools 拡張)、gpu/utility/render_frame_observer、web test 用ヘルパー。
+- クラス構成: cobalt/shell は namespace content の content_shell 派生。cobalt/ 層が継承（CobaltMainDelegate : ShellMainDelegate、CobaltContentBrowserClient : ShellContentBrowserClient、CobaltBrowserMainParts : ShellBrowserMainParts）。Renderer/GPU/Utility client は Cobalt 独自（Shell 版を継承しない）。
+- ShellContentBrowserClient の override: content_shell 44 / cobalt shell 40。cobalt で削除: AreIsolatedWebAppsEnabled、BindBrowserControlInterface、ExposeInterfacesToChild、Cookie Deprecation Label 2 個、IsFencedStorageReadAllowed、OnNetworkServiceCreated 等。追加: 非ネットワーク URLLoaderFactory 登録 4 個（h5vcc-embedded スキーム用）、GetCacheStoragePath。CobaltContentBrowserClient がさらに 20 個 override（UA、ナビゲーションスロットル、キャッシュ quota、PiP など）。
+- BUILD.gn の依存: content_shell のみ = //content/web_test:*、//device/bluetooth、//components/permissions、//components/origin_trials、crashpad/breakpad、//sandbox、//ppapi テストプラグイン、//ui/shell_dialogs、//tools/v8_context_snapshot 等。cobalt shell のみ = //cobalt/browser/*（h5vcc_runtime、lifecycle、on_screen_keyboard）、//cobalt/updater、//ui/ozone/platform/starboard、//starboard/common、//components/js_injection/browser。
+- DWARF CU のコード量（.text 範囲、llvm-dwarfdump + cu_attr.py を 2 階層に細分化）: content_shell 131.7MB → cobalt(rom_O2、-Os なし) 91.6MB、差 40.2MB。
+  | 区分 | content_shell | cobalt | 差 |
+  |---|---|---|---|
+  | Blink（core/modules/生成バインディング/platform） | 36.86 | 30.31 | 6.55 |
+  | ブラウザ内の動画・画像デコーダ（libaom, libvpx, ffmpeg, dav1d, crabbyavif, media/gpu） | 5.19 | 0.01 | 5.18 |
+  | WebGPU（Dawn, SPIR-V Tools） | 4.64 | 0.00 | 4.64 |
+  | content/browser, content/services | 10.68 | 6.43 | 4.25 |
+  | WebRTC | 4.25 | 0.22 | 4.03 |
+  | ML（TFLite, XNNPACK, WebNN） | 3.55 | 0.02 | 3.53 |
+  | device（Bluetooth/HID/USB 等） | 2.56 | 0.75 | 1.81 |
+  | Rust | 1.83 | 0.60 | 1.23 |
+  | web_test | 1.11 | 0.00 | 1.11 |
+  | shell 本体（content/shell vs cobalt/shell） | 0.10 | 0.10 | 0.00 |
+  | その他（skia 0.82, harfbuzz 0.65, v8 0.64, ozone 0.52 など） | | | 7.83 |
+  cobalt/・starboard/・media/starboard の追加分は 0.5MB。
+- 主な GN 引数の差（gn args --list）: use_dawn/skia_use_dawn true→false、use_webrtc_peer_connection true→false、build_with_tflite_lib/webnn_use_tflite true→false、media_use_ffmpeg/media_use_libvpx/enable_libaom/enable_ffmpeg_video_decoders true→false、use_starboard_media false→true、use_vaapi true→false、enable_vulkan true→false。
+- 結論: shell の実装コード自体はどちらも約 0.1MB で差はない。差の 40MB は shell の置き換えではなく、cobalt のビルド構成（is_cobalt 用の GN 引数、Blink の sub_modules 除外パッチ、Step 4）によるもの。デコーダはブラウザから外れて libstarboard.so（7.0MB）側に移る（削除ではなく移動）。
+
+## Step 18. テレビ向け Shell としての cobalt shell（機能面）
+ここでの「cobalt shell」は cobalt/shell（content_shell 派生）＋ cobalt/app ＋ cobalt/browser（Shell を継承する Cobalt 層）＋ ui/ozone/platform/starboard。
+- 起動: スプラッシュ画面を別 WebContents で表示（shell.h:97 LoadSplashScreenWebContents、:99 h5vcc.system.hideSplashScreen() で閉じる、最小表示時間・動画の preroll 待ち :308-334）。splash.html などは h5vcc-embedded スキームでメモリ内リソースから配信（h5vcc_scheme_url_loader_factory.h:46-49、キャッシュ版と組み込み版）。起動 URL に端末署名（device_authentication.cc）。旧 Cobalt（Starboard storage record）から Chromium のストレージへの移行（migrate_storage_record/migration_manager.h）。
+- 画面: views ウィンドウは 1 枚。content_shell の views 実装にある URL 入力欄（Textfield 6）と戻る/進むボタンが cobalt 版には 0。ウィンドウサイズは SbWindowGetSize に合わせる（shell_platform_delegate_views.cc:302-312）。JavaScript の alert/confirm/prompt は表示せず抑止（shell_javascript_dialog_manager.cc:51 did_suppress_message=true、TODO コメントあり）。
+- 入力: Ozone の Starboard プラットフォーム（platform_event_source_starboard.cc）が kSbEventTypeInput を ui のキー/マウスイベントに変換。画面キーボード API（on_screen_keyboard.idl、window_on_screen_keyboard.idl）。
+- ライフサイクル: cobalt/app/app_event_delegate.cc が kSbEventType Start/Stop/Blur/Focus/Conceal/Reveal/Freeze/Unfreeze/Link/Input を処理。cobalt_lifecycle_manager.h: Conceal は 2 段階（Blink の visibilitychange/pagehide の完了 → ウィンドウの unmap と GPU（EGL）の後始末、:78-87）。Reveal の ACK 待ちでフォーカスを遅らせる（:72-75）。
+- メディア: Starboard のプレーヤー（SbPlayer）を使う。Blink への追加 API: MediaKeys.getMetrics()、SourceBuffer.writeHead / appendTransferredBuffer（third_party/blink/renderer/modules/cobalt/）。Android TV のピクチャー・イン・ピクチャー（picture_in_picture_window_manager.h）。
+- 外部連携: DIAL サーバー（cobalt/browser/dial: UDP と HTTP サーバー、JS 側 DialServer IDL で onGet/onPost/onDelete）。ディープリンク（kSbEventTypeLink → h5vcc_runtime/deep_link_manager）。
+- 端末情報: User-Agent に Starboard のシステムプロパティ（ファームウェア版、端末種別、補助欄。user_agent_platform_info.cc:205,294,296）。client_hint_headers でヘッダーにも付与。
+- 運用: Evergreen 更新（h5vcc.updater、//cobalt/updater）、ハング監視（hang_watcher_delegate_impl: H5vcc 設定 > Finch > 既定値の 3 段）、クラッシュ注記、メトリクス、メモリ ablation 実験（memory_ablation.h、上限 256MB）、HTTPS/CSP の強制はコマンドラインで（cobalt_secure_navigation_throttle.h）。
+- Blink 側の Cobalt IDL: 25 個（h_5_vcc*.idl 13、dial 3、on_screen_keyboard 2、crash_log、deep_link_event、metrics_event、text_to_speech_change_event 2、media_keys_extensions、source_buffer_extensions）。
+- gold で外れるもの: DevTools のバックエンド（content/browser/devtools/features.gni: enable_devtools_backend = enable_devtools_frontend || !(is_cobalt && cobalt_is_release_build)。gold の cobalt_shell_lib.ninja には shell_devtools_manager_delegate_stub.o のみ）。content_shell にある Bluetooth、権限管理、オリジントライアル、色選択、Web テストは cobalt shell にない。
